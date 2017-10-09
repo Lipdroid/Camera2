@@ -3,6 +3,7 @@ package com.mdmunirhossain.camera2burst;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -14,6 +15,9 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.Image;
+import android.media.ImageReader;
+import android.os.Environment;
 import android.os.HandlerThread;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
@@ -25,12 +29,19 @@ import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
 
 import android.os.Handler;
@@ -54,6 +65,22 @@ public class MainActivity extends AppCompatActivity {
     private static final int STATE_PREVIEW = 0;
     private static final int STATE_WAIT_LOCK = 1;
     private int mState;
+
+    //file to save image
+    private static File mImageFile;
+    private String mImageFileLocation = "";
+    private String GALLERY_LOCATION = "image gallery";
+    private File mGalleryFolder;
+
+    private ImageReader mImageReader;
+
+    private final ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
+
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            mBackgroundHandler.post(new ImageSaver(reader.acquireLatestImage()));
+        }
+    };
 
     /*To get the height width of a textureview which is important
         for showing the camera on screen
@@ -123,14 +150,15 @@ public class MainActivity extends AppCompatActivity {
         }
 
         private void process(CaptureResult result) {
-            switch (mState){
+            switch (mState) {
                 case STATE_PREVIEW:
                     //do nothing
                     break;
                 case STATE_WAIT_LOCK:
                     //lock focus
                     Integer afState = result.get(CaptureResult.CONTROL_AF_STATE);
-                    if(afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED){
+                    if (afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED) {
+                        //unlock focus after having some images
                         unlockFocus();
                     }
                     break;
@@ -209,6 +237,21 @@ public class MainActivity extends AppCompatActivity {
                 mCameraId = cameraId;
                 //now get the supported sizes of that camera to set up in the textureview for preview
                 StreamConfigurationMap map = cameraCharacteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+
+                //set up captured image size
+                Size largestImageSize = Collections.max(
+                        Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)), new Comparator<Size>() {
+
+                            @Override
+                            public int compare(Size lhs, Size rhs) {
+                                return Long.signum(lhs.getWidth() * lhs.getHeight() - rhs.getWidth() * rhs.getHeight());
+                            }
+                        }
+
+                );
+                mImageReader = ImageReader.newInstance(largestImageSize.getWidth(),largestImageSize.getHeight(),ImageFormat.JPEG,1);
+                mImageReader.setOnImageAvailableListener(mOnImageAvailableListener,mBackgroundHandler);
+
                 //get the closest minimum size of the camera supported and set it to our textureview
                 mPreviewSize = getPreferredPreviewSize(map.getOutputSizes(SurfaceTexture.class), width, height);
 
@@ -347,14 +390,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void take_picture(View view) {
+        //create an image file to save
+        try {
+            mImageFile = createImageFile();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         lockFocus();
     }
+
 
     private void lockFocus() {
         try {
             mState = STATE_WAIT_LOCK;
-            mPreviewCaptureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,CaptureRequest.CONTROL_AF_TRIGGER_START);
-            mCameraCaptureSession.capture(mPreviewCaptureRequestBuilder.build(),mSessionCaptureCallback,mBackgroundHandler);
+            mPreviewCaptureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START);
+            mCameraCaptureSession.capture(mPreviewCaptureRequestBuilder.build(), mSessionCaptureCallback, mBackgroundHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
@@ -363,10 +413,57 @@ public class MainActivity extends AppCompatActivity {
     private void unlockFocus() {
         try {
             mState = STATE_PREVIEW;
-            mPreviewCaptureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
-            mCameraCaptureSession.capture(mPreviewCaptureRequestBuilder.build(),mSessionCaptureCallback,mBackgroundHandler);
+            mPreviewCaptureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
+            mCameraCaptureSession.capture(mPreviewCaptureRequestBuilder.build(), mSessionCaptureCallback, mBackgroundHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
     }
+
+    File createImageFile() throws IOException {
+
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        String imageFileName = "IMAGE_" + timeStamp + "_";
+
+        File image = File.createTempFile(imageFileName, ".jpg", mGalleryFolder);
+        mImageFileLocation = image.getAbsolutePath();
+
+        return image;
+
+    }
+
+    //save image in background
+    private static class ImageSaver implements Runnable {
+        private final Image mImage;
+
+        private ImageSaver(Image image) {
+            mImage = image;
+        }
+
+        @Override
+        public void run() {
+            ByteBuffer byteBuffer = mImage.getPlanes()[0].getBuffer();
+            byte[] bytes = new byte[byteBuffer.remaining()];
+            byteBuffer.get(bytes);
+
+            FileOutputStream fileOutputStream = null;
+            try {
+                fileOutputStream = new FileOutputStream(mImageFile);
+                fileOutputStream.write(bytes);
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                mImage.close();
+                if (fileOutputStream != null) {
+                    try {
+                        fileOutputStream.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+
+        }
+    }
+
 }
