@@ -26,6 +26,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.Size;
+import android.util.SparseIntArray;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -73,6 +74,14 @@ public class MainActivity extends AppCompatActivity {
     private File mGalleryFolder;
 
     private ImageReader mImageReader;
+
+    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+    static {
+        ORIENTATIONS.append(Surface.ROTATION_0, 90);
+        ORIENTATIONS.append(Surface.ROTATION_90, 0);
+        ORIENTATIONS.append(Surface.ROTATION_180, 270);
+        ORIENTATIONS.append(Surface.ROTATION_270, 180);
+    }
 
     private final ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
 
@@ -159,6 +168,8 @@ public class MainActivity extends AppCompatActivity {
                     Integer afState = result.get(CaptureResult.CONTROL_AF_STATE);
                     if (afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED) {
                         //unlock focus after having some images
+                       // unlockFocus();
+                        captuteStillImage();
                         unlockFocus();
                     }
                     break;
@@ -193,7 +204,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
+        createImageGallery();
         //finiding views
         mTextureView = (TextureView) findViewById(R.id.textureView);
     }
@@ -249,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
                         }
 
                 );
-                mImageReader = ImageReader.newInstance(largestImageSize.getWidth(),largestImageSize.getHeight(),ImageFormat.JPEG,1);
+                mImageReader = ImageReader.newInstance(largestImageSize.getWidth(), largestImageSize.getHeight(), ImageFormat.JPEG, 1);
                 mImageReader.setOnImageAvailableListener(mOnImageAvailableListener,mBackgroundHandler);
 
                 //get the closest minimum size of the camera supported and set it to our textureview
@@ -327,6 +338,11 @@ public class MainActivity extends AppCompatActivity {
             mCameraDevice.close();
             mCameraDevice = null;
         }
+
+        if(mImageReader != null){
+            mImageReader.close();
+            mImageReader = null;
+        }
     }
 
     private void createCameraPreviewSession() {
@@ -341,9 +357,17 @@ public class MainActivity extends AppCompatActivity {
             //create the capture request Builder
             mPreviewCaptureRequestBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             //add the surface
+            List surfaces = new ArrayList<>();
+
+            surfaces.add(previewSurface);
             mPreviewCaptureRequestBuilder.addTarget(previewSurface);
+
+            Surface readerSurface = mImageReader.getSurface();
+            surfaces.add(readerSurface);
+            mPreviewCaptureRequestBuilder.addTarget(readerSurface);
+
             //now create capture session
-            mCameraDevice.createCaptureSession(Arrays.asList(previewSurface), new CameraCaptureSession.StateCallback() {
+            mCameraDevice.createCaptureSession(surfaces, new CameraCaptureSession.StateCallback() {
                 @Override
                 public void onConfigured(@NonNull CameraCaptureSession session) {
                     //camera is still available build the request
@@ -452,7 +476,9 @@ public class MainActivity extends AppCompatActivity {
                 fileOutputStream.write(bytes);
             } catch (IOException e) {
                 e.printStackTrace();
-            } finally {
+            } catch (Exception e){
+                e.printStackTrace();
+            }finally {
                 mImage.close();
                 if (fileOutputStream != null) {
                     try {
@@ -466,4 +492,35 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void captuteStillImage(){
+        try {
+            CaptureRequest.Builder captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureBuilder.addTarget(mImageReader.getSurface());
+
+            int rotation = getWindowManager().getDefaultDisplay().getRotation();
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION,ORIENTATIONS.get(rotation));
+
+            CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
+                @Override
+                public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
+                    super.onCaptureCompleted(session, request, result);
+                    unlockFocus();
+                    Log.e("Image Capture","Successfully");
+                }
+            };
+
+            mCameraCaptureSession.capture(captureBuilder.build(),captureCallback,null);
+
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+    private void createImageGallery() {
+        File storageDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+        mGalleryFolder = new File(storageDirectory, GALLERY_LOCATION);
+        if(!mGalleryFolder.exists()) {
+            mGalleryFolder.mkdirs();
+        }
+
+    }
 }
