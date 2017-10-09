@@ -20,5 +20,6 @@
         android:layout_centerHorizontal="true"
         android:layout_alignParentBottom="true"
         android:layout_marginBottom="20dp"
+        android:onClick="take_picture"
         android:src="@drawable/camera_icon"/>
 </RelativeLayout>

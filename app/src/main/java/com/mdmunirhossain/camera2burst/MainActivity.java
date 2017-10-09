@@ -9,7 +9,10 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.os.HandlerThread;
 import android.support.annotation.IntDef;
@@ -21,6 +24,7 @@ import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
+import android.view.View;
 import android.widget.Toast;
 
 import java.util.ArrayList;
@@ -28,6 +32,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+
 import android.os.Handler;
 
 public class MainActivity extends AppCompatActivity {
@@ -44,6 +49,11 @@ public class MainActivity extends AppCompatActivity {
     //create back
     private HandlerThread mBackgroundThread;
     private Handler mBackgroundHandler;
+
+    //Focus States
+    private static final int STATE_PREVIEW = 0;
+    private static final int STATE_WAIT_LOCK = 1;
+    private int mState;
 
     /*To get the height width of a textureview which is important
         for showing the camera on screen
@@ -107,8 +117,35 @@ public class MainActivity extends AppCompatActivity {
     * */
     private CameraCaptureSession.CaptureCallback mSessionCaptureCallback = new CameraCaptureSession.CaptureCallback() {
         @Override
+        public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
+            super.onCaptureCompleted(session, request, result);
+            process(result);
+        }
+
+        private void process(CaptureResult result) {
+            switch (mState){
+                case STATE_PREVIEW:
+                    //do nothing
+                    break;
+                case STATE_WAIT_LOCK:
+                    //lock focus
+                    Integer afState = result.get(CaptureResult.CONTROL_AF_STATE);
+                    if(afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED){
+                        unlockFocus();
+                    }
+                    break;
+            }
+        }
+
+        @Override
+        public void onCaptureFailed(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull CaptureFailure failure) {
+            super.onCaptureFailed(session, request, failure);
+        }
+
+        @Override
         public void onCaptureStarted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, long timestamp, long frameNumber) {
             super.onCaptureStarted(session, request, timestamp, frameNumber);
+
         }
     };
 
@@ -237,13 +274,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void closeCamera(){
-        if (mCameraCaptureSession != null){
+    private void closeCamera() {
+        if (mCameraCaptureSession != null) {
             mCameraCaptureSession.close();
             mCameraCaptureSession = null;
         }
 
-        if (mCameraDevice != null){
+        if (mCameraDevice != null) {
             mCameraDevice.close();
             mCameraDevice = null;
         }
@@ -283,7 +320,7 @@ public class MainActivity extends AppCompatActivity {
 
                 @Override
                 public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                    Log.e("OnCameraSession: ","failed");
+                    Log.e("OnCameraSession: ", "failed");
                 }
             }, null);
 
@@ -297,6 +334,7 @@ public class MainActivity extends AppCompatActivity {
         mBackgroundThread.start();
         mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
     }
+
     protected void closeBackgroundThread() {
         mBackgroundThread.quitSafely();
         try {
@@ -308,4 +346,27 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    public void take_picture(View view) {
+        lockFocus();
+    }
+
+    private void lockFocus() {
+        try {
+            mState = STATE_WAIT_LOCK;
+            mPreviewCaptureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,CaptureRequest.CONTROL_AF_TRIGGER_START);
+            mCameraCaptureSession.capture(mPreviewCaptureRequestBuilder.build(),mSessionCaptureCallback,mBackgroundHandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void unlockFocus() {
+        try {
+            mState = STATE_PREVIEW;
+            mPreviewCaptureRequestBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,CaptureRequest.CONTROL_AF_TRIGGER_CANCEL);
+            mCameraCaptureSession.capture(mPreviewCaptureRequestBuilder.build(),mSessionCaptureCallback,mBackgroundHandler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
 }
