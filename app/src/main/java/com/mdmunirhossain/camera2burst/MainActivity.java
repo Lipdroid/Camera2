@@ -11,6 +11,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.os.HandlerThread;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
@@ -20,12 +21,14 @@ import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import android.os.Handler;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CAMERA_PERMISSION = 200;
@@ -37,6 +40,10 @@ public class MainActivity extends AppCompatActivity {
     private CaptureRequest mPreviewCaptureRequest;
     private CaptureRequest.Builder mPreviewCaptureRequestBuilder;
     private CameraCaptureSession mCameraCaptureSession;
+
+    //create back
+    private HandlerThread mBackgroundThread;
+    private Handler mBackgroundHandler;
 
     /*To get the height width of a textureview which is important
         for showing the camera on screen
@@ -105,6 +112,17 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        if (requestCode == REQUEST_CAMERA_PERMISSION) {
+            if (grantResults[0] == PackageManager.PERMISSION_DENIED) {
+                // close the app
+                Toast.makeText(this, "Sorry!!!, you can't use this app without granting permission", Toast.LENGTH_LONG).show();
+                finish();
+            }
+        }
+    }
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -118,12 +136,22 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-
+        openBackgroundThread();
         if (mTextureView.isAvailable()) {
-
+            //so set up the camera
+            setupCamera(mTextureView.getWidth(), mTextureView.getHeight());
+            //open the camera
+            openCamera();
         } else {
             mTextureView.setSurfaceTextureListener(mSurfaceTextureListener);
         }
+    }
+
+    @Override
+    protected void onPause() {
+        closeCamera();
+        closeBackgroundThread();
+        super.onPause();
     }
 
     private void setupCamera(int width, int height) {
@@ -202,10 +230,22 @@ public class MainActivity extends AppCompatActivity {
             }
             //this is going to open the camera bt will not visible cause we are not yet set with the texture view
             //it will call camera opened callback
-            cameraManager.openCamera(mCameraId, mCameraDeviceStateCallback, null);
+            cameraManager.openCamera(mCameraId, mCameraDeviceStateCallback, mBackgroundHandler);
 
         } catch (CameraAccessException ex) {
             ex.printStackTrace();
+        }
+    }
+
+    private void closeCamera(){
+        if (mCameraCaptureSession != null){
+            mCameraCaptureSession.close();
+            mCameraCaptureSession = null;
+        }
+
+        if (mCameraDevice != null){
+            mCameraDevice.close();
+            mCameraDevice = null;
         }
     }
 
@@ -235,7 +275,7 @@ public class MainActivity extends AppCompatActivity {
                         //store the session
                         mCameraCaptureSession = session;
                         //request the session to start
-                        mCameraCaptureSession.setRepeatingBurst(Arrays.asList(mPreviewCaptureRequest), mSessionCaptureCallback, null);
+                        mCameraCaptureSession.setRepeatingBurst(Arrays.asList(mPreviewCaptureRequest), mSessionCaptureCallback, mBackgroundHandler);
                     } catch (CameraAccessException e) {
                         e.printStackTrace();
                     }
@@ -249,6 +289,22 @@ public class MainActivity extends AppCompatActivity {
 
         } catch (CameraAccessException ex) {
             ex.printStackTrace();
+        }
+    }
+
+    protected void openBackgroundThread() {
+        mBackgroundThread = new HandlerThread("Camera2 Background thread");
+        mBackgroundThread.start();
+        mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
+    }
+    protected void closeBackgroundThread() {
+        mBackgroundThread.quitSafely();
+        try {
+            mBackgroundThread.join();
+            mBackgroundThread = null;
+            mBackgroundHandler = null;
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
     }
 
