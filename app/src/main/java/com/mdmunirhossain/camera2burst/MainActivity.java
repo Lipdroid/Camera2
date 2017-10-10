@@ -31,6 +31,7 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
@@ -49,6 +50,8 @@ import android.os.Handler;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CAMERA_PERMISSION = 200;
+
+    private TextView tv_count;
 
     private TextureView mTextureView;
     private Size mPreviewSize;
@@ -75,7 +78,18 @@ public class MainActivity extends AppCompatActivity {
 
     private ImageReader mImageReader;
 
+    private static int count = 0;
+    private static int MAX_CAPTURE = 0;
+
+    public int STATE_BTN_ONE = 1;
+    public int STATE_BTN_THREE = 2;
+    public int STATE_BTN_SIX = 3;
+
+    private int btn_pressed = 1;
+
+
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+
     static {
         ORIENTATIONS.append(Surface.ROTATION_0, 90);
         ORIENTATIONS.append(Surface.ROTATION_90, 0);
@@ -83,11 +97,40 @@ public class MainActivity extends AppCompatActivity {
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
-    private final ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
+    public final ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
 
         @Override
         public void onImageAvailable(ImageReader reader) {
             mBackgroundHandler.post(new ImageSaver(reader.acquireLatestImage()));
+            if (count < MAX_CAPTURE) runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+
+                    if (btn_pressed == STATE_BTN_ONE) {
+                        findViewById(R.id.btn_take_image_one_FPS).performClick();
+
+                    } else if (btn_pressed == STATE_BTN_THREE) {
+                        findViewById(R.id.btn_take_image_three_FPS).performClick();
+
+                    } else if (btn_pressed == STATE_BTN_SIX) {
+                        findViewById(R.id.btn_take_image_six_FPS).performClick();
+
+                    }
+                    count++;
+                    tv_count.setText(count + "");
+
+                }
+            });
+            else {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        tv_count.setText(count+1 + "");
+                        count = 0;
+
+                    }
+                });
+            }
         }
     };
 
@@ -168,8 +211,13 @@ public class MainActivity extends AppCompatActivity {
                     Integer afState = result.get(CaptureResult.CONTROL_AF_STATE);
                     if (afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED) {
                         //unlock focus after having some images
-                       // unlockFocus();
-                        captuteStillImage();
+                        // unlockFocus();
+                        try {
+                            captuteStillImage();
+
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
                         unlockFocus();
                     }
                     break;
@@ -204,9 +252,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
         createImageGallery();
         //finiding views
         mTextureView = (TextureView) findViewById(R.id.textureView);
+        tv_count = (TextView) findViewById(R.id.tv_count);
+
     }
 
     @Override
@@ -260,11 +311,13 @@ public class MainActivity extends AppCompatActivity {
                         }
 
                 );
-                mImageReader = ImageReader.newInstance(largestImageSize.getWidth(), largestImageSize.getHeight(), ImageFormat.JPEG, 1);
-                mImageReader.setOnImageAvailableListener(mOnImageAvailableListener,mBackgroundHandler);
 
                 //get the closest minimum size of the camera supported and set it to our textureview
                 mPreviewSize = getPreferredPreviewSize(map.getOutputSizes(SurfaceTexture.class), width, height);
+
+                mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), ImageFormat.JPEG, 1);
+                mImageReader.setOnImageAvailableListener(mOnImageAvailableListener, mBackgroundHandler);
+
 
                 return;
 
@@ -339,7 +392,7 @@ public class MainActivity extends AppCompatActivity {
             mCameraDevice = null;
         }
 
-        if(mImageReader != null){
+        if (mImageReader != null) {
             mImageReader.close();
             mImageReader = null;
         }
@@ -364,7 +417,6 @@ public class MainActivity extends AppCompatActivity {
 
             Surface readerSurface = mImageReader.getSurface();
             surfaces.add(readerSurface);
-            mPreviewCaptureRequestBuilder.addTarget(readerSurface);
 
             //now create capture session
             mCameraDevice.createCaptureSession(surfaces, new CameraCaptureSession.StateCallback() {
@@ -414,6 +466,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void take_picture(View view) {
+        btn_pressed = STATE_BTN_ONE;
+        MAX_CAPTURE = 0;
         //create an image file to save
         try {
             mImageFile = createImageFile();
@@ -456,6 +510,30 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+    public void take_picture_three(View view) {
+        btn_pressed = STATE_BTN_THREE;
+        MAX_CAPTURE = 2;
+        //create an image file to save
+        try {
+            mImageFile = createImageFile();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        lockFocus();
+    }
+
+    public void take_picture_six(View view) {
+        btn_pressed = STATE_BTN_SIX;
+        MAX_CAPTURE = 5;
+        //create an image file to save
+        try {
+            mImageFile = createImageFile();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        lockFocus();
+    }
+
     //save image in background
     private static class ImageSaver implements Runnable {
         private final Image mImage;
@@ -476,9 +554,9 @@ public class MainActivity extends AppCompatActivity {
                 fileOutputStream.write(bytes);
             } catch (IOException e) {
                 e.printStackTrace();
-            } catch (Exception e){
+            } catch (Exception e) {
                 e.printStackTrace();
-            }finally {
+            } finally {
                 mImage.close();
                 if (fileOutputStream != null) {
                     try {
@@ -487,38 +565,40 @@ public class MainActivity extends AppCompatActivity {
                         e.printStackTrace();
                     }
                 }
+
             }
 
         }
     }
 
-    private void captuteStillImage(){
+    private void captuteStillImage() {
         try {
             CaptureRequest.Builder captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureBuilder.addTarget(mImageReader.getSurface());
 
             int rotation = getWindowManager().getDefaultDisplay().getRotation();
-            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION,ORIENTATIONS.get(rotation));
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
 
             CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
                 @Override
                 public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
                     super.onCaptureCompleted(session, request, result);
                     unlockFocus();
-                    Log.e("Image Capture","Successfully");
+                    Log.e("Image Capture", "Successfully");
                 }
             };
 
-            mCameraCaptureSession.capture(captureBuilder.build(),captureCallback,null);
+            mCameraCaptureSession.capture(captureBuilder.build(), captureCallback, null);
 
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
     }
+
     private void createImageGallery() {
         File storageDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
         mGalleryFolder = new File(storageDirectory, GALLERY_LOCATION);
-        if(!mGalleryFolder.exists()) {
+        if (!mGalleryFolder.exists()) {
             mGalleryFolder.mkdirs();
         }
 
