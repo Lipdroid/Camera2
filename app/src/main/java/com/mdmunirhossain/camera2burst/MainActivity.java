@@ -90,6 +90,8 @@ public class MainActivity extends AppCompatActivity {
     private int btn_pressed = 1;
     private List<Image> mImageList = new ArrayList<>();
 
+    private List<byte[]> bytelist = new ArrayList<>();
+
 
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
 
@@ -106,48 +108,15 @@ public class MainActivity extends AppCompatActivity {
         public void onImageAvailable(ImageReader reader) {
             //count++;
             Log.i("ImageLoaderOnAvailable", "Time = " + System.currentTimeMillis());
-            //Image im = reader.acquireNextImage();
-            mBackgroundHandler.post(new ImageSaver(reader.acquireNextImage()));
-            //im.close();
-            //      Image image = reader.acquireLatestImage();
-//            Log.e("Max Image", reader.getMaxImages() + "");
-//            image.close();
-//            mImageList.add(image);
-//            if (count < MAX_CAPTURE) runOnUiThread(new Runnable() {
-//                @Override
-//                public void run() {
-//
-//                    if (btn_pressed == STATE_BTN_ONE) {
-//                        //findViewById(R.id.btn_take_image_one_FPS).performClick();
-//
-//                    } else if (btn_pressed == STATE_BTN_THREE) {
-//                        //findViewById(R.id.btn_take_image_three_FPS).performClick();
-//
-//                    } else if (btn_pressed == STATE_BTN_SIX) {
-//                        //findViewById(R.id.btn_take_image_six_FPS).performClick();
-//
-//                    }
-//                    count++;
-//                    tv_count.setText(count + "");
-//
-//                }
-//            });
-//            else {
-//                Log.e("Svaed Image Surface", mImageList.size() + "");
-//                //save the images now in background
-//                for (Image surfaceImage : mImageList) {
-//                    //mBackgroundHandler.post(new ImageSaver(surfaceImage));
-//                }
-//                runOnUiThread(new Runnable() {
-//                    @Override
-//                    public void run() {
-//                        tv_count.setText(count + 1 + "");
-//                        count = 0;
-//
-//                    }
-//                });
-//            }
+            Image image = reader.acquireNextImage();
+            ByteBuffer byteBuffer = image.getPlanes()[0].getBuffer();
+            byte[] bytes = new byte[byteBuffer.remaining()];
+            byteBuffer.get(bytes);
+            bytelist.add(bytes);
+            image.close();
+
         }
+
     };
 
     /*To get the height width of a textureview which is important
@@ -541,10 +510,13 @@ public class MainActivity extends AppCompatActivity {
 
     //save image in background
     private class ImageSaver implements Runnable {
-        private final Image mImage;
+        //private final Image mImage;
 
         private ImageSaver(Image image) {
-            mImage = image;
+            //mImage = image;
+        }
+        private ImageSaver() {
+            // mImage = image;
         }
 
         @Override
@@ -553,77 +525,24 @@ public class MainActivity extends AppCompatActivity {
             ByteBuffer byteBuffer;
             byte[] bytes;
             boolean success = false;
-            switch (mImage.getFormat()) {
 
-                case ImageFormat.JPEG:
-                    try {
-                        byteBuffer = mImage.getPlanes()[0].getBuffer();
-                        bytes = new byte[byteBuffer.remaining()];
-                        byteBuffer.get(bytes);
-                        mImageFile = createImageFile();
-                        fileOutputStream = new FileOutputStream(mImageFile);
-                        fileOutputStream.write(bytes);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    } catch (IllegalStateException e) {
-                        e.printStackTrace();
-                    } finally {
-                        mImage.close();
-                        if (fileOutputStream != null) {
-                            try {
-                                fileOutputStream.close();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-
-                    }
-                    break;
-                // YUV_420_888 images are saved in a format of our own devising. First write out the
-                // information necessary to reconstruct the image, all as ints: width, height, U-,V-plane
-                // pixel strides, and U-,V-plane row strides. (Y-plane will have pixel-stride 1 always.)
-                // Then directly place the three planes of byte data, uncompressed.
-                //
-                // Note the YUV_420_888 format does not guarantee the last pixel makes it in these planes,
-                // so some cases are necessary at the decoding end, based on the number of bytes present.
-                // An alternative would be to also encode, prior to each plane of bytes, how many bytes are
-                // in the following plane. Perhaps in the future.
-                case ImageFormat.YUV_420_888:
-
-                    // "prebuffer" simply contains the meta information about the following planes.
-                    ByteBuffer prebuffer = ByteBuffer.allocate(16);
-                    prebuffer.putInt(mImage.getWidth())
-                            .putInt(mImage.getHeight())
-                            .putInt(mImage.getPlanes()[1].getPixelStride())
-                            .putInt(mImage.getPlanes()[1].getRowStride());
-
-                    try {
-                        fileOutputStream = new FileOutputStream(mImageFile);
-                        fileOutputStream.write(prebuffer.array()); // write meta information to file
-                        // Now write the actual planes.
-                        for (int i = 0; i < 3; i++) {
-                            byteBuffer = mImage.getPlanes()[i].getBuffer();
-                            bytes = new byte[byteBuffer.remaining()]; // makes byte array large enough to hold image
-                            byteBuffer.get(bytes); // copies image from buffer to byte array
-                            fileOutputStream.write(bytes);    // write the byte array to file
-                        }
-                        success = true;
-                    } catch (FileNotFoundException e) {
-                        e.printStackTrace();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    } finally {
-                        Log.v("YUV", "Closing image to free buffer.");
-                        mImage.close(); // close this to free up buffer for other images
-                        if (null != fileOutputStream) {
-                            try {
-                                fileOutputStream.close();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
+            for(byte[] byteItem: bytelist){
+                try {
+                    mImageFile = createImageFile();
+                    fileOutputStream = new FileOutputStream(mImageFile);
+                    fileOutputStream.write(byteItem);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }finally {
+                    if (fileOutputStream != null) {
+                        try {
+                            fileOutputStream.close();
+                        } catch (IOException e) {
+                            e.printStackTrace();
                         }
                     }
-                    break;
+
+                }
             }
 
         }
@@ -632,6 +551,7 @@ public class MainActivity extends AppCompatActivity {
     private void captuteStillImage() {
         try {
             count = 0;
+            bytelist.clear();
             CaptureRequest.Builder captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
 
@@ -655,6 +575,7 @@ public class MainActivity extends AppCompatActivity {
 
                     if (count >= MAX_CAPTURE) {
                         unlockFocus();
+                        mBackgroundHandler.post(new ImageSaver());
                         deleteCache(MainActivity.this);
                     }
                     Log.e("Image Capture", "Successfully");
