@@ -2,6 +2,7 @@ package com.mdmunirhossain.camera2burst;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
@@ -18,6 +19,7 @@ import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
+import android.net.Uri;
 import android.os.Environment;
 import android.os.HandlerThread;
 import android.support.annotation.IntDef;
@@ -75,12 +77,12 @@ public class MainActivity extends AppCompatActivity {
     //file to save image
     private static File mImageFile;
     private String mImageFileLocation = "";
-    private String GALLERY_LOCATION = "image gallery";
+    private String GALLERY_LOCATION = "BurstShot";
     private File mGalleryFolder;
 
     private ImageReader mImageReader;
 
-    private static int count = 0;
+    private int count = 0;
     private static int MAX_CAPTURE = 0;
 
     public int STATE_BTN_ONE = 1;
@@ -106,7 +108,8 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onImageAvailable(ImageReader reader) {
-            //count++;
+            count++;
+            //Log.e("count In Image", count + "");
             Log.i("ImageLoaderOnAvailable", "Time = " + System.currentTimeMillis());
             Image image = reader.acquireNextImage();
             ByteBuffer byteBuffer = image.getPlanes()[0].getBuffer();
@@ -114,7 +117,12 @@ public class MainActivity extends AppCompatActivity {
             byteBuffer.get(bytes);
             bytelist.add(bytes);
             image.close();
-
+            if (count >= MAX_CAPTURE) {
+                //capture completed,now save
+                Log.e("Background Saving", "Started" + bytelist.size());
+                mBackgroundHandler.post(new ImageSaver());
+                deleteCache(MainActivity.this);
+            }
         }
 
     };
@@ -195,9 +203,9 @@ public class MainActivity extends AppCompatActivity {
                     //lock focus
                     Integer afState = result.get(CaptureResult.CONTROL_AF_STATE);
                     if (afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED) {
-                        Log.e("Camera focus locked","");
+                        Log.e("Camera focus locked", "");
                         try {
-                            captuteStillImage();
+                            // captuteStillImage();
 
                         } catch (Exception e) {
                             e.printStackTrace();
@@ -299,7 +307,7 @@ public class MainActivity extends AppCompatActivity {
                 //get the closest minimum size of the camera supported and set it to our textureview
                 mPreviewSize = getPreferredPreviewSize(map.getOutputSizes(SurfaceTexture.class), width, height);
 
-                mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), ImageFormat.JPEG, 6);
+                mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), ImageFormat.JPEG, 2);
                 mImageReader.setOnImageAvailableListener(mOnImageAvailableListener, mBackgroundHandler);
 
 
@@ -450,13 +458,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-
     public void take_picture(View view) {
         btn_pressed = STATE_BTN_ONE;
         MAX_CAPTURE = 1;
 
         //lockFocus();
-        captuteStillImage();
+        captuteStillImage(1);
     }
 
 
@@ -496,16 +503,19 @@ public class MainActivity extends AppCompatActivity {
         btn_pressed = STATE_BTN_THREE;
         MAX_CAPTURE = 3;
         //lockFocus();
-        captuteStillImage();
+        captuteStillImage(3);
 
     }
 
     public void take_picture_six(View view) {
         btn_pressed = STATE_BTN_SIX;
-        MAX_CAPTURE = 6;
         //lockFocus();
-        captuteStillImage();
+        captuteStillImage(6);
 
+    }
+
+    public void open_gallery(View view) {
+        openGallery();
     }
 
     //save image in background
@@ -515,6 +525,7 @@ public class MainActivity extends AppCompatActivity {
         private ImageSaver(Image image) {
             //mImage = image;
         }
+
         private ImageSaver() {
             // mImage = image;
         }
@@ -522,18 +533,18 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void run() {
             FileOutputStream fileOutputStream = null;
-            ByteBuffer byteBuffer;
-            byte[] bytes;
-            boolean success = false;
 
-            for(byte[] byteItem: bytelist){
+            for (byte[] byteItem : bytelist) {
                 try {
                     mImageFile = createImageFile();
                     fileOutputStream = new FileOutputStream(mImageFile);
                     fileOutputStream.write(byteItem);
+                    galleryAddPic();
+                    Log.e("Saving Complete", "successfull,listSize: " + bytelist.size());
                 } catch (IOException e) {
                     e.printStackTrace();
-                }finally {
+                    Log.e("Saving Complete", "unsuccessfull,listSize: "+ bytelist.size());
+                } finally {
                     if (fileOutputStream != null) {
                         try {
                             fileOutputStream.close();
@@ -548,9 +559,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void captuteStillImage() {
+    private int show_capture_count = 0;
+
+    private void captuteStillImage(int image_count) {
         try {
             count = 0;
+            MAX_CAPTURE = image_count;
+            show_capture_count = 0;
             bytelist.clear();
             CaptureRequest.Builder captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
@@ -562,22 +577,17 @@ public class MainActivity extends AppCompatActivity {
                 @Override
                 public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
                     super.onCaptureCompleted(session, request, result);
-                    //unlockFocus();
-                    count++;
-                    Log.e("count", count + "");
+                    //only showing the counts in screen
+                    show_capture_count++;
+                    Log.e("count In Session", show_capture_count + "");
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            tv_count.setText(count + "");
+                            tv_count.setText(show_capture_count + "");
 
                         }
                     });
 
-                    if (count >= MAX_CAPTURE) {
-                        unlockFocus();
-                        mBackgroundHandler.post(new ImageSaver());
-                        deleteCache(MainActivity.this);
-                    }
                     Log.e("Image Capture", "Successfully");
                 }
             };
@@ -594,8 +604,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void createImageGallery() {
-        File storageDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
-        mGalleryFolder = new File(storageDirectory, GALLERY_LOCATION);
+        //File storageDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+        mGalleryFolder = new File(Environment.getExternalStorageDirectory(), GALLERY_LOCATION);
         if (!mGalleryFolder.exists()) {
             mGalleryFolder.mkdirs();
         }
@@ -606,7 +616,8 @@ public class MainActivity extends AppCompatActivity {
         try {
             File dir = context.getCacheDir();
             deleteDir(dir);
-        } catch (Exception e) {}
+        } catch (Exception e) {
+        }
     }
 
     public static boolean deleteDir(File dir) {
@@ -619,10 +630,24 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             return dir.delete();
-        } else if(dir!= null && dir.isFile()) {
+        } else if (dir != null && dir.isFile()) {
             return dir.delete();
         } else {
             return false;
         }
+    }
+
+    private void galleryAddPic() {
+        Intent mediaScanIntent = new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
+        File f = new File(mImageFileLocation);
+        Uri contentUri = Uri.fromFile(f);
+        mediaScanIntent.setData(contentUri);
+        this.sendBroadcast(mediaScanIntent);
+    }
+
+    private void openGallery(){
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(
+                "content://media/internal/images/ "));
+        startActivity(intent);
     }
 }
