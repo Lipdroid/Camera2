@@ -22,12 +22,15 @@ import android.media.ImageReader;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.HandlerThread;
+import android.os.SystemClock;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.text.format.DateUtils;
 import android.util.Log;
+import android.util.Range;
 import android.util.Size;
 import android.util.SparseIntArray;
 import android.view.Surface;
@@ -104,19 +107,33 @@ public class MainActivity extends AppCompatActivity {
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
-    public final ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
+    private long previoustime = 0;
 
+    public final ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
+        private int  frames = 0;
+        private long initialTime = SystemClock.elapsedRealtimeNanos();
         @Override
         public void onImageAvailable(ImageReader reader) {
             count++;
             //Log.e("count In Image", count + "");
-            Log.i("ImageLoaderOnAvailable", "Time = " + System.currentTimeMillis());
+
             Image image = reader.acquireNextImage();
+            //Log.d("onImageAvailable", ": IMAGE AVAILABLE " + DateUtils.formatDateTime(MainActivity.this, image.getTimestamp() , DateUtils.FORMAT_SHOW_TIME) );
+
             ByteBuffer byteBuffer = image.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[byteBuffer.remaining()];
             byteBuffer.get(bytes);
             bytelist.add(bytes);
             image.close();
+
+            frames++;
+            if ((frames % MAX_CAPTURE) == 0) {
+                long currentTime = SystemClock.elapsedRealtimeNanos();
+                long fps = Math.round(frames * 1e9 / (currentTime - initialTime));
+                Log.d("Image", "frame# : " + frames + ", approximately " + fps + " fps");
+                frames = 0;
+                initialTime = SystemClock.elapsedRealtimeNanos();
+            }
             if (count >= MAX_CAPTURE) {
                 //capture completed,now save
                 Log.e("Background Saving", "Started" + bytelist.size());
@@ -569,6 +586,11 @@ public class MainActivity extends AppCompatActivity {
             bytelist.clear();
             CaptureRequest.Builder captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+            Range<Integer> bestFPSRange = new Range<>(MAX_CAPTURE,MAX_CAPTURE);
+            //captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, bestFPSRange);
+            //captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range.create(0,6));
+            captureBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, getRange());
+
 
             int rotation = getWindowManager().getDefaultDisplay().getRotation();
             captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
@@ -649,5 +671,39 @@ public class MainActivity extends AppCompatActivity {
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(
                 "content://media/internal/images/ "));
         startActivity(intent);
+    }
+
+    private Range<Integer> getRange() {
+        //get the camera manager
+        CameraManager cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        CameraCharacteristics chars = null;
+        Range<Integer> result = null;
+        Range<Integer>[] ranges = null;
+        try {
+            chars = cameraManager.getCameraCharacteristics(mCameraId);
+            ranges = chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
+
+
+            for (Range<Integer> range : ranges) {
+                int upper = range.getUpper();
+
+                // 10 - min range upper for my needs
+                if (upper <= MAX_CAPTURE) {
+                    if (result == null || upper > result.getUpper().intValue()) {
+                        result = range;
+                    }
+                }
+            }
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+
+
+        if (result == null) {
+            //result = ranges[0];
+            result = new Range<>(MAX_CAPTURE,MAX_CAPTURE);
+        }
+        Log.e("Range",result+"");
+        return result;
     }
 }
