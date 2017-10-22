@@ -62,6 +62,7 @@ public class MainActivity extends AppCompatActivity {
 
     private TextureView mTextureView;
     private Size mPreviewSize;
+    private Size mImageSize;
     private String mCameraId;
     private CameraDevice mCameraDevice;
     private CaptureRequest mPreviewCaptureRequest;
@@ -324,7 +325,12 @@ public class MainActivity extends AppCompatActivity {
                 //get the closest minimum size of the camera supported and set it to our textureview
                 mPreviewSize = getPreferredPreviewSize(map.getOutputSizes(SurfaceTexture.class), width, height);
 
-                mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), ImageFormat.JPEG, 2);
+                //get the closest minimum size of the camera supported and set it to our textureview
+                int imageWidth = 640;
+                int imageHeight = 480;
+                mImageSize = getPreferredPreviewSize(map.getOutputSizes(ImageFormat.JPEG), imageWidth, imageHeight);
+
+                mImageReader = ImageReader.newInstance(imageWidth, imageHeight, ImageFormat.JPEG, 2);
                 mImageReader.setOnImageAvailableListener(mOnImageAvailableListener, mBackgroundHandler);
 
 
